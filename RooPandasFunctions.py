@@ -15,7 +15,6 @@ import multiprocessing as mp
 import pyarrow as pa
 import pyarrow.parquet as pq
 import itertools
-import xarray as xa
 import copy 
 import functools
 import warnings
@@ -120,6 +119,10 @@ class PRow():
         #print(np.array(self.bname))
         cname=np.array(self.bname)[:,1]
         dictnames=np.array(self.bname)[:,0]
+        #print(cname.shape)
+        #print(cname)
+        #print(indices.shape)
+        #print(len(funcapply))
 
         Serdict=pd.DataFrame(funcapply,columns=cname,index=indices)
 
@@ -153,9 +156,13 @@ class PEventInfo():
                 self.eventcontainer=eventcontainer
 
 def RunProc(Proc):
-    return Proc.Run()
+    rr=Proc.Run()
+    #print (rr)
+    return Proc.hists,rr
 
 def FillHist(df,hists):
+        #print (df)
+
         for ih,hh in enumerate(hists):
 
                 if (isinstance(hists[hh],ROOT.TH2)):
@@ -211,7 +218,7 @@ class PProcRunner():
                 self.Proc=Proc
     def Run(self,crange=None):
             fulltime=time.time()
-            histreturn={}
+
             if self.nproc>1:
                     pool = mp.Pool(self.nproc)
 
@@ -244,86 +251,48 @@ class PProcRunner():
                     pool.close()    
                     timetot={}
                     cutflowtot={}
-                    resarr = results
-                    print("Fill Hist")
-                    first=True
-                    for ir,rr in enumerate(resarr):
-                        for ds in rr:
-                            #print (rr[ds])
-                            #print (rr[ds][0])
-                            skip=False
-                            if isinstance(rr[ds][1],type(None)):
-                                print("Empty chunk")
-                                skip=True
-                            FillHist(rr[ds][0],self.Proc.hists[ds])
+                    #resarr = results
+                    for icproc,cproc in enumerate(results):
 
-                            if ds in histreturn:
-                                for ph in rr[ds][0]:
-                                    if ph in histreturn[ds]:
-                                        histreturn[ds][ph]=pd.concat((histreturn[ds][ph],rr[ds][0][ph]))
-                                    else:
-                                        histreturn[ds][ph]=rr[ds][0][ph]
-                            else:
-                                histreturn[ds]={}
-                            if skip:
-                                continue
-                            if not (ds in timetot):
-                                    timetot[ds]={}
-                                    for benchmark in rr[ds][1]:
-                                        timetot[ds][benchmark]=rr[ds][1][benchmark]-rr[ds][1]["Start"]
-                                    cutflowtot[ds]=rr[ds][2]
-                            else:
-                                    for benchmark in (timetot[ds]):
-                                        timetot[ds][benchmark]=max(rr[ds][1][benchmark]-rr[ds][1]["Start"],timetot[ds][benchmark])
-                                    for cc in range(len(cutflowtot[ds])):
-                                        cutflowtot[ds][cc]+=rr[ds][2][cc]
+                        hists,histreturn=cproc
+                        for ds in hists:
+                            for histo in hists[ds]:
+                                #print (self.Proc.hists[ds][histo].Integral(),hists[ds][histo].Integral())
+                                self.Proc.hists[ds][histo].Add(hists[ds][histo])
+                                #print (self.Proc.hists[ds][histo].Integral())
+                                #print (ds,histo,self.Proc.hists[ds][histo].Integral())
+                    #for ds in cutflowtot:
+                     #       print("Timing...")
 
-                    
-                    for ds in cutflowtot:
-                            print("Timing...")
-
-                            for benchmark in timetot[ds]:
-                                print ("\t",benchmark,timetot[ds][benchmark])
-                            print ("Dataset:",ds,"Completed")
-                            print ("Events input:",cutflowtot[ds][0],"output:",cutflowtot[ds][1])
+                      #      for benchmark in timetot[ds]:
+                       #         print ("\t",benchmark,timetot[ds][benchmark])
+                        #    print ("Dataset:",ds,"Completed")
+                         #   print ("Events input:",cutflowtot[ds][0],"output:",cutflowtot[ds][1])
                     print("Done")
                     
 
             else:
-                    runout=self.Proc.Run(crange)
+                    histreturn=self.Proc.Run(crange)
                     timetot={}
                     cutflowtot={}
-                    for ds in runout:
+                 
+                    #for ds in cutflowtot:
+                     #       print("Timing...")
 
-                        for ph in runout[ds][0]:
-                            if ds in histreturn:
-                                    if ph in histreturn[ds]:
-                                        histreturn[ds][ph]=pd.concat((histreturn[ds][ph],runout[ds][0][ph]))
-                                    else:
-                                        histreturn[ds][ph]=runout[ds][0][ph]
-                            else:
-                                histreturn[ds]={}
-                        FillHist(runout[ds][0],self.Proc.hists[ds])
-                        timetot[ds]={}
-                        for benchmark in runout[ds][1]:
-                            timetot[ds][benchmark]=runout[ds][1][benchmark]-runout[ds][1]["Start"]
-                        cutflowtot[ds]=runout[ds][2]
-                    for ds in cutflowtot:
-                            print("Timing...")
-
-                            for benchmark in timetot[ds]:
-                                print ("\t",benchmark,timetot[ds][benchmark])
-                            print ("Dataset:",ds,"Completed")
-                            print ("Events input:",cutflowtot[ds][0],"output:",cutflowtot[ds][1])
+                      #      for benchmark in timetot[ds]:
+                       #         print ("\t",benchmark,timetot[ds][benchmark])
+                        #    print ("Dataset:",ds,"Completed")
+                         #   print ("Events input:",cutflowtot[ds][0],"output:",cutflowtot[ds][1])
 
 
             print("Total time",time.time()-fulltime)
             return histreturn
 
 class PProcessor():
-    def __init__(self,files,hists,branches,sequence,proc=1,atype="flat",eventcontainer={},scalars=[],verbose=True):
+    def __init__(self,files,hists,branches,sequence,proc=1,atype="flat",eventcontainer={},scalars=[],verbose=True,rhistlist=[]):
         self.files=files
         self.hists=hists 
+        self.rhistlist=rhistlist 
         self.scalars=scalars 
         self.branches=branches  
         self.proc=proc 
@@ -452,14 +421,30 @@ class PProcessor():
                                
                                 if not (br).all():
                                     raise ValueError("Events are not 1-to-1 in collection",branch)
-                    for hh in df["Hists"]:
+                                    
+                   
+                    #FillHist(rr[ds][0],Proc.hists[ds])
 
+
+                    for hh in df["Hists"]:
+                            #print ("temp")
+                            #print(self.hists[ds])
+                            #print(hh , self.rhistlist)
+
+                            if (not hh in self.rhistlist):
+                                continue
+                            #print("in!",hh)
+                            #if (hh not in histreturn):
+                             #   continue
                             if hh in histreturn:
                                 histreturn[hh]=pd.concat((histreturn[hh],df["Hists"][hh]))
                             else:
                                 histreturn[hh]=df["Hists"][hh]
                             #print ("--")
                             #print (hh,histreturn[hh])
+                    #print("Fill")
+                    FillHist(df["Hists"],self.hists[ds])
+
                     pbar.update(1)
 
                     if isinstance(timingagg,type(None)):
