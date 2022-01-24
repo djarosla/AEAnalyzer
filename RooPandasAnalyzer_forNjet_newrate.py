@@ -40,7 +40,7 @@ parser.add_option('-m', '--massrange', metavar='F', type='string', action='store
                   help		=	'0,1,2,3,all')
 
 parser.add_option('-a', '--aeval', metavar='F', type='string', action='store',
-                  default	=	'90',
+                  default	=	'95',
                   dest		=	'aeval',
                   help		=	'90,95,99')
 
@@ -53,6 +53,11 @@ parser.add_option('--quickrun', metavar='F', action='store_true',
 		  default=False,
 		  dest='quickrun',
 		  help='quickrun')
+
+parser.add_option('--qcdonly', metavar='F', action='store_true',
+		  default=False,
+		  dest='qcdonly',
+		  help='qcdonly')
 
 
 (options, args) = parser.parse_args()
@@ -69,6 +74,7 @@ op_aeval=options.aeval
 
 ntoys=int(options.toys)
 quickrun=options.quickrun
+qcdonly=options.qcdonly
 if quickrun:
     op_nproc=1
 
@@ -100,37 +106,34 @@ class PreColumn():
 
 #Select jetwise and eventwise. Exactly 4 jets with pt in region X, and all have sdmass in region Y
 class KinematicSelection():
-    def __init__(self,njet,ptcut,msdcut,htcut):
+    def __init__(self,njet,ptcut,msdcut):
         self.ptcut=ptcut
         self.njet=njet
         self.msdcut=msdcut
-        self.htcut=htcut
     def __call__(self,df,EventInfo):
         
-        fjcutpt=(df["FatJet"]["pt"]>self.ptcut[0]) & (df["FatJet"]["pt"]<self.ptcut[1]) 
+        fjcutpt=(df["FatJet"]["pt"]>self.ptcut[0]) &(df["FatJet"]["pt"]<self.ptcut[1]) 
         df["FatJet"]=df["FatJet"][fjcutpt]
         C1=(df["FatJet"]["event"].count(level=0))==self.njet
 
+        fjcuteta=(df["FatJet"]["eta"].abs()>0.0) &(df["FatJet"]["eta"].abs()<2.4) 
+        df["FatJet"]=df["FatJet"][fjcuteta]
+        C3=(df["FatJet"]["event"].count(level=0))==self.njet
+
+ 
+
         fjcutmass=(df["FatJet"]["msoftdrop"]>self.msdcut[0])&(df["FatJet"]["msoftdrop"]<self.msdcut[1])
         df["FatJet"]=df["FatJet"][fjcutmass]
+
         C2=(df["FatJet"]["event"].count(level=0))==self.njet
 
-        allht = df["FatJet"]["pt"].sum(level=0)
-        C3 = (allht > self.htcut[0])&(allht < self.htcut[1])
-        
-        fjcut=fjcutpt&fjcutmass
+        fjcut=fjcutpt&fjcutmass&fjcuteta
         C0=((fjcut).sum(level=0)>0)
    
 
-<<<<<<< HEAD
         if (not ( C0 & C1 & C2 & C3).any()):
             return None
         return ( C0 & C1 & C2 & C3)
-=======
-        if (not ( C0 & C1 & C2).any()):
-            return None
-        return ( C0 & C1 & C2)
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
 
 
 # In[7]:
@@ -220,6 +223,8 @@ class MakeTags():
         df["Hists"]["ht"]=df["FatJet"]["pt"].sum(level=0)
         df["Hists"]["njettight"] = njettight
         df["Hists"]["njetloose"] = njetloose
+        df["Hists"]["abseta"]=df["FatJet"]["eta"].abs()
+
 
         return df
 
@@ -256,7 +261,7 @@ class MakeHistsForBkg():
         self.njet=njet
     def __call__(self,df,EventInfo):
         bkgparam=EventInfo.eventcontainer["bkgparam"]
-        for ijet in range(self.njet):
+        for ijet in range(self.njet+1):
             for ebin in bkgparam["eta"]:
                 #tightreq=(df["Hists"]["njettight"]==1) | (df["Hists"]["njettight"]==0)
                 tightreq=True
@@ -267,27 +272,32 @@ class MakeHistsForBkg():
                 try:
                     df["Hists"]["ptT"+str(ijet)+"_"+ebin]=df["FatJet"]["pt"][df["FatJet"]["tight"]][etacut][:,ijet]
                 except:
-                    print("Fail ptT")
                     pass
                 try:
                     df["Hists"]["ptL"+str(ijet)+"_"+ebin]=df["FatJet"]["pt"][df["FatJet"]["loose"]][etacut][:,ijet]
                 except:
-                    print("Fail ptL")
                     pass
+                try:
+                    df["Hists"]["ptT21"+str(ijet)+"_"+ebin]=df["FatJet"]["pt"][df["FatJet"]["tight"]][etacut][:,ijet][df["Hists"]["njettight"]==1][df["Hists"]["njetloose"]==2]
+                except:
+                    pass
+                try:
+                    df["Hists"]["ptL21"+str(ijet)+"_"+ebin]=df["FatJet"]["pt"][df["FatJet"]["loose"]][etacut][:,ijet][df["Hists"]["njettight"]==1][df["Hists"]["njetloose"]==2]
+                except:
+                    pass
+                try:
+                    df["Hists"]["ptL30"+str(ijet)+"_"+ebin]=df["FatJet"]["pt"][df["FatJet"]["loose"]][etacut][:,ijet][df["Hists"]["njettight"]==0][df["Hists"]["njetloose"]==3]
+                except:
+                    pass
+
             
             regionstr="LT"+str(ijet)+str(njet-ijet)
             df["Hists"]["ht_"+regionstr]=df["Hists"]["ht"][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
-            
+            df["Hists"]["abseta_"+regionstr]=df["Hists"]["abseta"][:,0][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
             for jjet in range(njet):
                 df["Hists"]["pt"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
-                df["Hists"]["ptTIGHT"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][df["FatJet"]["tight"]][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
-<<<<<<< HEAD
-                df["Hists"]["ptLOOSE"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][df["FatJet"]["loose"]][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
-                df["Hists"]["abseta"+str(jjet)+"_"+regionstr]=abseta[:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
-
-=======
-                df["Hists"]["ptLOOSE"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][df["FatJet"]["loose"]][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]     
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
+                df["Hists"]["ptT"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][df["FatJet"]["tight"]][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]
+                df["Hists"]["ptL"+str(jjet)+"_"+regionstr]=df["FatJet"]["pt"][df["FatJet"]["loose"]][:,jjet][df["Hists"]["njettight"]==(njet-ijet)][df["Hists"]["njetloose"]==(ijet)]   
         return df
 
 
@@ -336,13 +346,13 @@ class BkgEst():
             
             regionstr="LT"+str(ijet)+str(njet-ijet)
         
-        nloose=0
+        nloosetr=0
         for ll in loose:
-            nloose+=ll
-        ntight=0
+            nloosetr+=ll
+        ntighttr=0
         for tt in tight:
-            ntight+=tt
-        
+            ntighttr+=tt
+
         #if ((nloose)==self.njet):
         
         maxbin=2**self.njet
@@ -357,10 +367,11 @@ class BkgEst():
         jetebin=[] 
         jetptbin=[] 
 
-        usefullrate=False
+        usefullrate=True
 
  
         Trateetajet=[]
+
         for ijet in range(self.njet):
             Trateetajet.append([])
             for iebin,ebin in enumerate(bkgparam["eta"]):
@@ -371,129 +382,120 @@ class BkgEst():
                     
 
                     if usefullrate:
+
                         ptbin=RateHistsFULL["Rate"+ebin+"jet"+str(ijet)].FindBin(pt[ijet])
                         TRtemp=RateHistsFULL["Rate"+ebin+"jet"+str(ijet)].GetBinContent(ptbin)
+                        TRLtemp=RateHistsFULL["RateL"+ebin+"jet"+str(ijet)].GetBinContent(ptbin)
                         TRtemperr=RateHistsFULL["Rate"+ebin+"jet"+str(ijet)].GetBinError(ptbin)
                     else:
                         ptbin=RateHists["Rate"+ebin].FindBin(pt[ijet])
                         TRtemp=RateHists["Rate"+ebin].GetBinContent(ptbin)
+                        TRLtemp=RateHists["RateL"+ebin].GetBinContent(ptbin)
                         TRtemperr=RateHists["Rate"+ebin].GetBinError(ptbin)
 
                     Trateetajet[ijet][iebin]=TRtemp
-                    Trate.append(TRtemp)
-                    Lrate.append(1.0-TRtemp)
-                    
+
+                    if ntighttr==0:
+                            Trate.append(TRtemp)
+                            Lrate.append(TRLtemp)
+                            #Lrate.append(1.0)
+                    else:
+                            Trate.append(0.0)
+                            Lrate.append(0.0)
                     jetebin.append(iebin)
                     jetptbin.append(ptbin)                  
                     
                     
         weights=[0.0]*(self.njet+1)
-        weightsT=[ [0.0]*(self.njet+1) for _ in range(self.njet) ]
-        weightsL=[ [0.0]*(self.njet+1) for _ in range(self.njet) ]
+        weightsT=[0.0]*(self.njet+1)
+        weightsL=[0.0]*(self.njet+1)
+        weights1=[0.0]*(self.njet+1)
         nweights=[0.0]*(self.njet+1)
-        
+        #print(Trate)
         for ar in allregs:
             ntight=0
+            nloose=0
             weight=1.0
-            weightT=[ 1.0 ]*(self.njet)
-            weightL=[ 1.0 ]*(self.njet)
+            weightT=1.0
+            weightL=1.0
+            weight1=1.0
+            for ibit,bit in enumerate(range(self.njet)):
+                curbit=(ar>>bit)&1
+                ntight+=curbit
+                nloose+=(curbit==0)
             for ibit,bit in enumerate(range(self.njet)):
             
                 curbit=(ar>>bit)&1
-                ntight+=curbit
-                
+
+                #really not sure what the right one is.  
                 if curbit:
-                    weight*=Trate[ibit]   
-                    for kjet in range(self.njet):
-                        if ibit==kjet:
-                            if tight[kjet]:
-                                weightL[kjet]*=0.0 
-                                weightT[kjet]*=1.0 
-                            else:
-                                weightL[kjet]*=0.0 #should this be 1? 
-                                weightT[kjet]*=0.0                                 
-                        else:
-                            weightL[kjet]*=Trate[ibit] 
-                            weightT[kjet]*=Trate[ibit]  
-                else:
-                    weight*=Lrate[ibit]
-                    for kjet in range(self.njet):
-                        if ibit==kjet:
-                            
-                            if tight[kjet]:
-                                weightL[kjet]*=0.0 
-                                weightT[kjet]*=0.0  #should this be 1? 
-                            else:
-                                weightL[kjet]*=1.0 
-                                weightT[kjet]*=0.0                                
-                        
-                        else:
-                            weightT[kjet]*=Lrate[ibit] 
-                            weightL[kjet]*=Lrate[ibit]  
+                    weight*=Trate[ibit] #is this nonsense?
+                    #I use weight1 now.  Not sure though -- this is sum(Rloose)+sum(Rtight) but from LT21 so like the Rloose per jet is Rloose/2.  
+                    #Based on the pt agreement, this is average of loose and tight for all jets.  I think there is a better way to do this  
+                    weight1*=(float(ntight)*Trate[ibit]/1.0+float(nloose)*Lrate[ibit]/2.0)/float(nloose+ntight) #is this nonsense? 
 
-                    
-            for kjet in range(self.njet):
-                weightsT[kjet][self.njet-ntight]+=weightT[kjet]
-                weightsL[kjet][self.njet-ntight]+=weightL[kjet]              
-                    
-                    
+                    weightT*=float(ntight)*Trate[ibit]/1.0 #is this nonsense?
+                    weightL*= 1.0#is this nonsense?
+
+                else: 
+                    weight*=1.0-Trate[ibit] #is this nonsense?
+                    weight1*=1.0 #is this nonsense?
+                    weightT*=1.0 #is this nonsense?
+                    weightL*=float(nloose)*Lrate[ibit]/2.0 #is this nonsense?
+            #print
+            weights1[self.njet-ntight]+=weight1
             weights[self.njet-ntight]+=weight
+            weightsT[self.njet-ntight]+=weightT
+            weightsL[self.njet-ntight]+=weightL
             nweights[self.njet-ntight]+=1.0
-  
-                
-                
+        weightLT=list((np.array(weightsL)+np.array(weightsT)))
+        #print("----")
+        #print(weights)
+        #print(weights1)
+        #print(weightsT)
+        #print(weightsL)
+        #print(weightLT)
+
+        #print()
         allret=[]
-<<<<<<< HEAD
 
+        #This is the weighted average for ht.  Not sure if this makes sense, each jet has a probabilistic weight so maybe something like this
+        htw = 0.0
+        denom = 0.0
+        if ntighttr==0:
+                for ijet in range(njet):
+                            htw+=pt[ijet]*(Trate[ijet]+Lrate[ijet])
+                            denom+=(Trate[ijet]+Lrate[ijet])/3.0
+                htw/=denom
+        #print(ht,htw)
         
-
-=======
-
-        
-
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
-        for icweight,cweight in enumerate(weights):
+        for icweight,cweight in enumerate(weights1):
             allret.append(ht)
+            #allret.append(htw)
+
+            #print(icweight,cweight)
             allret.append(cweight*EventInfo.eventcontainer["evweight"])
             
             for jjet in range(njet):
-                allret.append(pt[jjet])
-                allret.append(cweight*EventInfo.eventcontainer["evweight"])
-                
-                
-                allret.append(pt[jjet])
-                allret.append(weightsT[jjet][icweight]*EventInfo.eventcontainer["evweight"])
 
+                #pt of all events-- Events where jet==jjet is tight + Events where jet==jjet is loose
+                #ht is something like sum(pt) with this weight averged over three jets?
                 allret.append(pt[jjet])
-                allret.append(weightsL[jjet][icweight]*EventInfo.eventcontainer["evweight"])
+                allret.append((Trate[jjet]+Lrate[jjet])*EventInfo.eventcontainer["evweight"])
+
+                #pt of all tight events-- Events where jet==jjet is tight + 0
+                allret.append(pt[jjet])
+                allret.append(Trate[jjet]*EventInfo.eventcontainer["evweight"])
+
+                #pt of all loose events--  0 + Events where jet==jjet is loose
+                allret.append(pt[jjet])
+                allret.append(Lrate[jjet]*EventInfo.eventcontainer["evweight"])
                 
-                #print("jetebin[jjet],jetptbin[jjet]",jetebin[jjet],jetptbin[jjet])
+                
                 allret.append(jetebin[jjet])
                 allret.append(jetptbin[jjet])
-        for jjet in range(njet):
-            #print(Trateetajet[jjet])
-            for iebin,ebin in enumerate(bkgparam["eta"]):
-                #print(Trateetajet[jjet][iebin])
-                allret.append(pt[jjet])
-                allret.append(Trateetajet[jjet][iebin]*EventInfo.eventcontainer["evweight"])
 
-
-                etacut=(bkgparam["eta"][ebin][0]<=eta[jjet]<bkgparam["eta"][ebin][1])
-                allret.append(pt[jjet])
-
-                #print(tight[jjet],etacut)
-                #print(tight[jjet]*etacut*EventInfo.eventcontainer["evweight"])
-                allret.append(etacut*tight[jjet]*EventInfo.eventcontainer["evweight"])
-
-        #print("len(allret)",len(allret),EventInfo.dataset)
         return (allret)
-
-
-# In[12]:
-
-
-#print (returndf["QCD_HT1500to2000"]["ebin0_LT12"])
-#print (returndf["QCD_HT1500to2000"]["ptbin0_LT12"])
 
 class MakeToys():
     def __init__(self,njet):
@@ -504,60 +506,34 @@ class MakeToys():
         maxbin=2**self.njet
         allregs=list(range(maxbin))
         allregs.reverse()
-        #print ("df.shape",df["Hists"]["ht"].shape)
 
         for ijet in range(self.njet+1):
 
             regionstr="LT"+str(ijet)+str(njet-ijet) 
             
             allt=EventInfo.eventcontainer["toys"]
-            #print(allt.shape)
 
             allteval=[]
             for jjet in range(njet):
-                #print(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr]].shape)
-                #print(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr]][0].shape)
-                #print(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr]][0][0].shape)
-                #print(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr]][0][0][:].shape)
-                #print(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr]][0][0][:][df["Hists"]["ptbin"+str(jjet)+"_"+regionstr]].shape)
-                #print (allt.shape)
                 allteval.append(allt[df["Hists"]["ebin"+str(jjet)+"_"+regionstr],:,df["Hists"]["ptbin"+str(jjet)+"_"+regionstr]])
-                #print("POST",allteval[-1].shape)
                 allteval[-1]=allteval[-1].squeeze()
-                #print("FINAL",allteval[-1].shape)
+
             for tt in range(ntoys):
-                #times.append(time.time())
+
                 sumem=np.zeros(df["Hists"]["ht"].shape)
                 times=[]
                 if True:
 
                     resampleT=[]
                     resampleL=[]
-                    
-                    #times.append(time.time())
-                    #print("Start",times[-1]-times[0])                
-                    
 
                     for jjet in range(njet):
-                        #times.append(time.time())
-                        #print("JJgo",jjet,times[-1]-times[-2])
-                        
-                        #print(allteval.shape)
-                        #print(allteval[jjet].shape)
-                        #print(allteval[jjet][:,tt].shape)
+               
 
-                        resampleT.append(allteval[jjet][:,tt])
-                        #times.append(time.time())
-                        #print("JJgo1",jjet,times[-1]-times[-2])                
-                        resampleL.append(np.ones(resampleT[-1].shape))
-                        #times.append(time.time())
-                        #print("JJgo2",jjet,times[-1]-times[-2])                
+                        resampleT.append(allteval[jjet][:,tt])              
+                        resampleL.append(np.ones(resampleT[-1].shape))             
                         resampleL[-1]=(resampleL[-1]-resampleT[-1])
-                        
-                        #times.append(time.time())
-                        #print("JJgo3",jjet,times[-1]-times[-2])                
-                    #times.append(time.time())        
-                    #print("JJETend",times[-1]-times[-2])                
+                                 
                 
                     for ar in allregs:
                         ntight=0
@@ -588,10 +564,17 @@ class MakeToys():
 
 
 chunklist=PInitDir("RooFlatFull")
+for ds in chunklist:
+        if qcdonly:
+            if (ds.split("_")[0]!="QCD"):
+                del chunklist[ds]
+
+#print (chunklist)
 bkgparam={}
 
 #three eta bins (probably overkill)
 bkgparam["eta"]={"E0":[0.0,0.4],"E1":[0.4,0.9],"E2":[0.9,1.3],"E3":[1.3,float("inf")]}
+#bkgparam["eta"]={"E0":[0.0,float("inf")]}
 
 #todo: muon triggers a failure mode as sometimes events have no muons and no filter remo 
 branchestoread={
@@ -620,31 +603,23 @@ def MakeProc(njet,step,evcont):
         for ijet in range(njet+1):
             regionstr="LT"+str(ijet)+str(njet-ijet)
             histostemp["ht_"+regionstr]=TH1F("ht_"+regionstr,"ht_"+regionstr,700,0,7000)
-<<<<<<< HEAD
+            histostemp["abseta_"+regionstr]=TH1F("abseta_"+regionstr,"abseta_"+regionstr,120,0,3.0)
 
             for jjet in range(njet):
                 histostemp["pt"+str(jjet)+"_"+regionstr]=TH1F("pt"+str(jjet)+"_"+regionstr,"pt"+str(jjet)+"_"+regionstr,1000,0,10000)
-                
-                histostemp["ptTIGHT"+str(jjet)+"_"+regionstr]=TH1F("ptTIGHT"+str(jjet)+"_"+regionstr,"ptTIGHT"+str(jjet)+"_"+regionstr,200,0,4000)
-                histostemp["ptLOOSE"+str(jjet)+"_"+regionstr]=TH1F("ptLOOSE"+str(jjet)+"_"+regionstr,"ptLOOSE"+str(jjet)+"_"+regionstr,200,0,4000)
-                histostemp["abseta"+str(jjet)+"_"+regionstr]=TH1F("abseta"+str(jjet)+"_"+regionstr,"abseta"+str(jjet)+"_"+regionstr,50,0,2.5)
-=======
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
+                histostemp["ptT"+str(jjet)+"_"+regionstr]=TH1F("ptT"+str(jjet)+"_"+regionstr,"ptT"+str(jjet)+"_"+regionstr,1000,0,10000)
+                histostemp["ptL"+str(jjet)+"_"+regionstr]=TH1F("ptL"+str(jjet)+"_"+regionstr,"ptL"+str(jjet)+"_"+regionstr,1000,0,10000)
 
-            for jjet in range(njet):
-                histostemp["pt"+str(jjet)+"_"+regionstr]=TH1F("pt"+str(jjet)+"_"+regionstr,"pt"+str(jjet)+"_"+regionstr,1000,0,10000)
-                
-                histostemp["ptTIGHT"+str(jjet)+"_"+regionstr]=TH1F("ptTIGHT"+str(jjet)+"_"+regionstr,"ptTIGHT"+str(jjet)+"_"+regionstr,200,0,4000)
-                histostemp["ptLOOSE"+str(jjet)+"_"+regionstr]=TH1F("ptLOOSE"+str(jjet)+"_"+regionstr,"ptLOOSE"+str(jjet)+"_"+regionstr,200,0,4000)
-            
             for ebin in bkgparam["eta"]:
                     histostemp["ptL"+str(ijet)+"_"+ebin]=TH1F("ptL"+str(ijet)+"_"+ebin,"ptL"+str(ijet)+"_"+ebin,1000,0,10000)
                     histostemp["ptT"+str(ijet)+"_"+ebin]=TH1F("ptT"+str(ijet)+"_"+ebin,"ptT"+str(ijet)+"_"+ebin,1000,0,10000)
-
+                    histostemp["ptL30"+str(ijet)+"_"+ebin]=TH1F("ptL30"+str(ijet)+"_"+ebin,"ptL30"+str(ijet)+"_"+ebin,1000,0,10000)
+                    histostemp["ptT21"+str(ijet)+"_"+ebin]=TH1F("ptT21"+str(ijet)+"_"+ebin,"ptT21"+str(ijet)+"_"+ebin,1000,0,10000)
+                    histostemp["ptL21"+str(ijet)+"_"+ebin]=TH1F("ptL21"+str(ijet)+"_"+ebin,"ptL21"+str(ijet)+"_"+ebin,1000,0,10000)
         histostemp["logMSE_all"]=TH1F("logMSE_all","logMSE_all",100,-20.,0.)
         myana=  [
                 PColumn(PreColumn()),
-                PFilter(KinematicSelection(njet,[200.0,float("inf")],sdcut,[1200.0,float("inf")])), 
+                PFilter(KinematicSelection(njet,[200.0,float("inf")],sdcut)), 
                 PFilter(KinematicSelectionDR(njet,1.4)),
                 PColumn(MakeTags(njet)),
                 PColumn(MakeHistsForBkg(njet)),
@@ -661,42 +636,32 @@ def MakeProc(njet,step,evcont):
             
             hpass.append(["Hists","bkg_ht_"+regionstr])
             hpass.append(["Hists","bkg_ht_"+regionstr+"__weight"])
-            
+
+          
             
             for jjet in range(njet):
                 
                 histostemp["bkg_pt"+str(jjet)+"_"+regionstr]=TH1F("bkg_pt"+str(jjet)+"_"+regionstr,"bkg_pt"+str(jjet)+"_"+regionstr,1000,0,10000)
                 hpass.append(["Hists","bkg_pt"+str(jjet)+"_"+regionstr])
                 hpass.append(["Hists","bkg_pt"+str(jjet)+"_"+regionstr+"__weight"])
+
+                histostemp["bkg_ptT"+str(jjet)+"_"+regionstr]=TH1F("bkg_ptT"+str(jjet)+"_"+regionstr,"bkg_ptT"+str(jjet)+"_"+regionstr,1000,0,10000)
+                hpass.append(["Hists","bkg_ptT"+str(jjet)+"_"+regionstr])
+                hpass.append(["Hists","bkg_ptT"+str(jjet)+"_"+regionstr+"__weight"])
+
+                histostemp["bkg_ptL"+str(jjet)+"_"+regionstr]=TH1F("bkg_ptL"+str(jjet)+"_"+regionstr,"bkg_ptL"+str(jjet)+"_"+regionstr,1000,0,10000)
+                hpass.append(["Hists","bkg_ptL"+str(jjet)+"_"+regionstr])
+                hpass.append(["Hists","bkg_ptL"+str(jjet)+"_"+regionstr+"__weight"])
                 
-                histostemp["bkg_ptTIGHT"+str(jjet)+"_"+regionstr]=TH1F("bkg_ptTIGHT"+str(jjet)+"_"+regionstr,"bkg_ptTIGHT"+str(jjet)+"_"+regionstr,100,0,2000)
-                hpass.append(["Hists","bkg_ptTIGHT"+str(jjet)+"_"+regionstr])
-                hpass.append(["Hists","bkg_ptTIGHT"+str(jjet)+"_"+regionstr+"__weight"])
-            
-                histostemp["bkg_ptLOOSE"+str(jjet)+"_"+regionstr]=TH1F("bkg_ptLOOSE"+str(jjet)+"_"+regionstr,"bkg_ptLOOSE"+str(jjet)+"_"+regionstr,100,0,2000)
-                hpass.append(["Hists","bkg_ptLOOSE"+str(jjet)+"_"+regionstr])
-                hpass.append(["Hists","bkg_ptLOOSE"+str(jjet)+"_"+regionstr+"__weight"])
-                
+    
                 hpass.append(["Hists","ebin"+str(jjet)+"_"+regionstr])
                 hpass.append(["Hists","ptbin"+str(jjet)+"_"+regionstr])
 
          
             for itoy in range(ntoys):
                 histostemp["bkg_ht_toy"+str(itoy)+"_"+regionstr]=TH1F("bkg_ht_toy"+str(itoy)+"_"+regionstr,"bkg_ht_toy"+str(itoy)+"_"+regionstr,700,0,7000)         
-        
-        for ijet in range(njet):
-            for ebin in bkgparam["eta"]:
-                histostemp["bkg_ptT"+str(ijet)+"_"+ebin]=TH1F("bkg_ptT"+str(ijet)+"_"+ebin,"bkg_ptT"+str(ijet)+"_"+ebin,1000,0,10000)
-                hpass.append(["Hists","bkg_ptT"+str(ijet)+"_"+ebin])   
-                hpass.append(["Hists","bkg_ptT"+str(ijet)+"_"+ebin+"__weight"])  
 
-                histostemp["CCptT"+str(ijet)+"_"+ebin]=TH1F("CCptT"+str(ijet)+"_"+ebin,"CCptT"+str(ijet)+"_"+ebin,1000,0,10000)
-      
-                hpass.append(["Hists","CCptT"+str(ijet)+"_"+ebin])   
-                hpass.append(["Hists","CCptT"+str(ijet)+"_"+ebin+"__weight"])  
-
-
-        print("len(hpass)",len(hpass))        
+        #print("len(hpass)",len(hpass))        
                     
         myana=  [
                 PColumn(PreColumn()),
@@ -713,8 +678,11 @@ def MakeProc(njet,step,evcont):
 
     histos= {}
     for ds in chunklist:
+        #print ("ds",ds)
+
         if quickrun:
             chunklist[ds]=chunklist[ds][:1]
+
         #chunklist[ds]=chunklist[ds][:12]
         histos[ds]=copy.deepcopy(histostemp)
 
@@ -748,17 +716,6 @@ returndf=Mproc.Run()
 #        print  (rr ,"cut90",returndf[rr]["logMSE_all"].quantile(0.90))
 #        print  (rr ,"cut95",returndf[rr]["logMSE_all"].quantile(0.95))
 #        print  (rr ,"cut99",returndf[rr]["logMSE_all"].quantile(0.99))
-<<<<<<< HEAD
-
-
-# In[18]:
-
-
-
-ratehistos=copy.deepcopy(proc.hists)
-
-qcdnames = ["QCD_HT1000to1500","QCD_HT1500to2000","QCD_HT2000toInf"]
-=======
 
 
 # In[18]:
@@ -769,28 +726,23 @@ ratehistos=copy.deepcopy(proc.hists)
 
 qcdnames = ["QCD_HT1000to1500","QCD_HT1500to2000","QCD_HT2000toInf"]
 
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
-
-# In[ ]:
 
 # In[ ]:
 
 
 #Make pass-to-fail ratio TR(pt,eta)
 THists={}
+LTHists={}
 LHists={}
 ALLHists={}
 
 THistsFULL={}
+LTHistsFULL={}
 LHistsFULL={}
 
-print("START")
+#print("START")
 
-<<<<<<< HEAD
 bins=array.array('d',[0,200,220,240,280,320,340,380,400,440,480,520,580,650,700,800,900,1000,1200,1500,2000,10000])
-=======
-bins=array.array('d',[0,250,300,350,400,500,600,700,800,900,1000,1200,1500,2000,10000])
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
 for ijet in range(njet):
     #print(ijet)
 
@@ -800,10 +752,10 @@ for ijet in range(njet):
         QCDhists=ratehistos[qcdname]
         for curhist in QCDhists:
             #print(curhist)
-            if curhist[:4] =="ptL"+str(ijet):
+            if curhist[:6] =="ptL30"+str(ijet):
                 Lstring=curhist
-                Tstring=curhist.replace("ptL"+str(ijet),"ptT"+str(ijet))
-                
+                Tstring=curhist.replace("ptL30"+str(ijet),"ptT21"+str(ijet))
+                LTstring=curhist.replace("ptL30"+str(ijet),"ptL21"+str(ijet))
 
                 
                 paramstr=Lstring.split("_")[-1]
@@ -812,55 +764,54 @@ for ijet in range(njet):
 
                 curhistL=QCDhists[Lstring]
                 curhistT=QCDhists[Tstring]
-                print("Tstring",Tstring,curhistT.Integral())
+                curhistLT=QCDhists[LTstring]
+                #print("Tstring",Tstring,curhistT.Integral())
 
                 #print (ijet,qcdname,paramstr)
                 #print (curhistT.Integral(),curhistL.Integral())
 
                 if not(paramstr in THists):
                     THists[paramstr]=copy.deepcopy(curhistT)
+                    LTHists[paramstr]=copy.deepcopy(curhistLT)
                     LHists[paramstr]=copy.deepcopy(curhistL)
-                    LHists[paramstr].Add(curhistT)
+
+
                 else:
                     THists[paramstr].Add(curhistT)
+                    LTHists[paramstr].Add(curhistLT)
                     LHists[paramstr].Add(curhistL)
-                    LHists[paramstr].Add(curhistT)
-                    
-                    
+
+  
+
+
                 if not(paramstrwjet in THistsFULL):
                     THistsFULL[paramstrwjet]=copy.deepcopy(curhistT)
+                    LTHistsFULL[paramstrwjet]=copy.deepcopy(curhistLT)
                     LHistsFULL[paramstrwjet]=copy.deepcopy(curhistL)
-                    LHistsFULL[paramstrwjet].Add(curhistT)
                 else:
                     THistsFULL[paramstrwjet].Add(curhistT)
+                    LTHistsFULL[paramstrwjet].Add(curhistLT)
                     LHistsFULL[paramstrwjet].Add(curhistL)
-                    LHistsFULL[paramstrwjet].Add(curhistT)                    
-                print("DONE",Tstring)
-                    
-print("DONE")          
+     
+                            
 for tth in THists:
-    THists[tth]=THists[tth].Rebin(len(bins)-1,THists[tth].GetName()+"TEMP",bins)                    
-for llh in LHists:
-    LHists[llh]=LHists[llh].Rebin(len(bins)-1,LHists[llh].GetName()+"TEMP",bins)                    
+    THists[tth]=THists[tth].Rebin(len(bins)-1,THists[tth].GetName()+"TEMP",bins)    
+for tth in LTHists:
+    LTHists[tth]=LTHists[tth].Rebin(len(bins)-1,LTHists[tth].GetName()+"TEMP",bins)                    
+for tth in LHists:
+    LHists[tth]=LHists[tth].Rebin(len(bins)-1,LHists[tth].GetName()+"TEMP",bins)                    
 
-print("DONE1")          
-  
 for tth in THistsFULL:
-    THistsFULL[tth]=THistsFULL[tth].Rebin(len(bins)-1,THistsFULL[tth].GetName()+"TEMP",bins)                    
-for llh in LHistsFULL:
-    LHistsFULL[llh]=LHistsFULL[llh].Rebin(len(bins)-1,LHistsFULL[llh].GetName()+"TEMP",bins)       
+    THistsFULL[tth]=THistsFULL[tth].Rebin(len(bins)-1,THistsFULL[tth].GetName()+"TEMP",bins)   
+for tth in LTHistsFULL:
+    LTHistsFULL[tth]=LTHistsFULL[tth].Rebin(len(bins)-1,LTHistsFULL[tth].GetName()+"TEMP",bins)                   
+for tth in LHistsFULL:
+    LHistsFULL[tth]=LHistsFULL[tth].Rebin(len(bins)-1,LHistsFULL[tth].GetName()+"TEMP",bins)       
     
-<<<<<<< HEAD
 
 
 # In[ ]:
 
-=======
-
-
-# In[ ]:
-
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
 
 
 
@@ -872,32 +823,32 @@ canvrate=TCanvas("canvrate","canvrate",700,500)
 color=1
 
 alltoys=[]
+#print("LHists",LHists)
 for RH in LHists:
-    print(RH)
-    print(THists[RH].Integral())
-    print(LHists[RH].Integral())
+    #print(RH)
+    #print(THists[RH].Integral())
+    #print(LHists[RH].Integral())
     
     RateHists["Rate"+RH]=copy.deepcopy(THists[RH])
-    RateHists["Rate"+RH].Divide(RateHists["Rate"+RH],LHists[RH],1.0,1.0,"B")
+    RateHists["Rate"+RH].Divide(RateHists["Rate"+RH],LHists[RH])#,1.0,1.0,"B")
+
+    RateHists["RateL"+RH]=copy.deepcopy(LTHists[RH])
+    RateHists["RateL"+RH].Divide(RateHists["RateL"+RH],LHists[RH])#,1.0,1.0,"B")
+
     means = []
     errs = []
     toys = []
     for xbin in range(RateHists["Rate"+RH].GetXaxis().GetNbins()+1):
         means.append(RateHists["Rate"+RH].GetBinContent(xbin))
         errs.append(RateHists["Rate"+RH].GetBinError(xbin))
-<<<<<<< HEAD
 
     curtoys=[]
     for tt in range(ntoys):
         curtoys.append(np.random.normal(means,errs))
-    print(curtoys[0].shape)
-=======
-    curtoys=[]
-    for tt in range(ntoys):
-        curtoys.append(np.random.normal(means,errs))
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
+    #print(curtoys[0].shape)
     alltoys.append(curtoys)
     #print (curtoys)
+    #print("Rate"+RH)
     RateHists["Rate"+RH].SetLineColor(color)
     RateHists["Rate"+RH].SetMarkerColor(color)
     RateHists["Rate"+RH].Draw("same")
@@ -908,30 +859,20 @@ RateHistsFULL=OrderedDict([])
 for RH in LHistsFULL:
  
     RateHistsFULL["Rate"+RH]=copy.deepcopy(THistsFULL[RH])
-    RateHistsFULL["Rate"+RH].Divide(RateHistsFULL["Rate"+RH],LHistsFULL[RH],1.0,1.0,"B")
+    RateHistsFULL["Rate"+RH].Divide(RateHistsFULL["Rate"+RH],LHistsFULL[RH])#,1.0,1.0,"B")
 
-        
+    RateHistsFULL["RateL"+RH]=copy.deepcopy(LTHistsFULL[RH])
+    RateHistsFULL["RateL"+RH].Divide(RateHistsFULL["RateL"+RH],LHistsFULL[RH])#,1.0,1.0,"B")
+
     
-    
-#for iiter in range(1000):
- #   for ijet in range(njet):
-  #      for tth in THists:
-   #         THists[tth]
-    
+
 canvrate.Print('plots/Trate.png', 'png')
 
 evcont["RateHists"]=RateHists
 evcont["RateHistsFULL"]=RateHistsFULL
-<<<<<<< HEAD
 
 evcont["toys"]=np.array(alltoys)
-=======
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
-
-evcont["toys"]=np.array(alltoys)
-
-
-# In[ ]:
+#print(evcont["toys"].shape)
 
 # In[ ]:
 
@@ -952,7 +893,7 @@ returndf=Mproc.Run()
 
 
 histos=copy.deepcopy(proc.hists)
-rebinval=1
+
 
 htosum={}
 htosum["QCD"]=["QCD_HT1500to2000","QCD_HT1000to1500","QCD_HT2000toInf"]
@@ -977,21 +918,13 @@ for hdict in histdicts:
 #Plot ht
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-<<<<<<< HEAD
-output = TFile("FromFlatPandas_AE"+op_aeval+"_M"+op_massrange+"_Njet"+str(op_njet)+"_ntoys"+str(ntoys)+".root","recreate")
-=======
 output = TFile("FromFlatPandas_AE"+op_aeval+"_M"+op_massrange+"_Njet"+str(op_njet)+".root","recreate")
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
 output.cd()
 
 for RHtext in RateHists:
- 
-<<<<<<< HEAD
-    RateHists[RHtext].Write("T"+RHtext)
-=======
-    RateHists[RHtext].Write("TRate"+RH)
->>>>>>> 0e9c7a4b7cd1d8fdc5b2346e6710b48c9dcdb50d
-
+    RateHists[RHtext].Write("TRate"+RHtext)
+for RHtext in RateHistsFULL:
+    RateHistsFULL[RHtext].Write("TRate"+RHtext)
 for ds in ratehistos:
     for var in ratehistos[ds]:
             ratehistos[ds][var].Write(ds+"__"+var)
@@ -1041,76 +974,118 @@ if ntoys>0:
     canvtoys.Print('plots/httoys'+ds+'.root', 'root')  
     image = mpimg.imread('plots/httoys'+ds+'.png')
 
-    print("toys")    
+    #print("toys")  
 
-for ds in histos:
-    for var in histos[ds]:
-            histos[ds][var].Write(ds+"__"+var)
-            #print(ds,var,histos[ds][var].Integral())
-    #print(histos[ds])
-    canv=TCanvas("ht"+ds,"ht"+ds,700,500)
-    canvrat=TCanvas("htrat"+ds,"htrat"+ds,700,500)
-    gPad.SetLeftMargin(0.12)
-    leg = TLegend(0.65, 0.65, 0.84, 0.84)
-    leg.SetFillColor(0)
-    leg.SetBorderSize(0)
-    histoiter=list(range(njet+1))
-    histoiter.reverse()
-    histoiter.pop(0)
-    allrat=[]
+tocanv={"ht":[2,[0,5000]],"pt0":[2,[0,3000]],"pt1":[2,[0,3000]],"pt2":[2,[0,3000]],"ptT0":[2,[0,3000]],"ptT1":[2,[0,3000]],"ptT2":[2,[0,3000]],"ptL0":[2,[0,3000]],"ptL1":[2,[0,3000]],"ptL2":[2,[0,3000]]}
 
-    for ijet in histoiter:
-            regionstr="LT"+str(ijet)+str(njet-ijet)
+for tc in tocanv:
+        for ds in histos:
+            for var in histos[ds]:
+                    histos[ds][var].Write(ds+"__"+var)
+                    #print(ds,var,histos[ds][var].Integral())
+            rebinval=tocanv[tc][0]
+            xrangeval=tocanv[tc][1]
+            #print(histos[ds])
+            canv=TCanvas(tc+ds,tc+ds,700,500)
+            main = ROOT.TPad("main", "main", 0, 0.3, 1, 1)
+            sub = ROOT.TPad("sub", "sub", 0, 0, 1, 0.3)
 
-            bkgname="bkg_ht_"+regionstr
-            dataname="ht_"+regionstr
-            color=ijet+1
+            main.SetLeftMargin(0.16)
+            main.SetRightMargin(0.05)
+            main.SetTopMargin(0.11)
+            main.SetBottomMargin(0.0)
 
+            sub.SetLeftMargin(0.16)
+            sub.SetRightMargin(0.05)
+            sub.SetTopMargin(0)
+            sub.SetBottomMargin(0.3)
 
-            ratehistos[ds][dataname].SetLineColor(color)
-            ratehistos[ds][dataname].SetTitle(";ht(GeV);events")
-            ratehistos[ds][dataname].SetStats(0) 
-            ratehistos[ds][dataname].Rebin(rebinval) 
+            main.Draw()
+            sub.Draw()
+            #canvrat=TCanvas("htrat"+ds,"htrat"+ds,700,500)
+            gPad.SetLeftMargin(0.12)
+            leg = TLegend(0.65, 0.55, 0.84, 0.84)
+            leg.SetFillColor(0)
+            leg.SetBorderSize(0)
+            histoiter=list(range(njet+1))
+            histoiter.reverse()
+            histoiter.pop(0)
+            allrat=[]
 
-            histos[ds][bkgname].SetLineColor(color)
-            histos[ds][bkgname].Rebin(rebinval) 
-            
-            canv.cd()
-            ratehistos[ds][dataname].Draw("same")   
-            histos[ds][bkgname].Draw("histsame") 
-            
-            
-            leg.AddEntry(histos[ds][bkgname],ds+regionstr+"bkg","L")
-            leg.AddEntry(ratehistos[ds][dataname],ds+regionstr,"P")
-
-            canvrat.cd()
-            allrat.append(copy.deepcopy(ratehistos[ds][dataname]) )
-            allrat[-1].Divide(histos[ds][bkgname])
-            allrat[-1].GetYaxis().SetRangeUser(0.5,1.5)
-            allrat[-1].Draw("histsame") 
+            for ijet in histoiter:
+                    regionstr="LT"+str(ijet)+str(njet-ijet)
+                    if tc[0:2]=="pt":
   
+                        if regionstr!="LT21":
+                                continue
 
-    leg.Draw()
-    canv.SetLogy()
-    canv.Write()
-    canv.Print('plots/ht'+ds+'.png', 'png')
-    canv.Print('plots/ht'+ds+'.root', 'root')
-    print(ds)
-    
-    canvrat.Write()    
-    canvrat.Print('plots/htrat'+ds+'.png', 'png') 
-    canvrat.Print('plots/htrat'+ds+'.root', 'root')  
-
-    image = mpimg.imread('plots/ht'+ds+'.png')
-
-    print("rat")
-
-    image = mpimg.imread('plots/htrat'+ds+'.png')
-
-    print("toys")
+                    bkgname="bkg_"+tc+"_"+regionstr
+                    dataname=tc+"_"+regionstr
+                    color=ijet+1
 
 
-    
+
+                    ratehistos[ds][dataname].SetLineColor(color)
+                    ratehistos[ds][dataname].SetTitle(";"+tc+"(GeV);events")
+                    ratehistos[ds][dataname].SetStats(0) 
+                    ratehistos[ds][dataname].Rebin(rebinval) 
+
+                    ratehistos[ds][dataname].GetXaxis().SetRangeUser(xrangeval[0],xrangeval[1])
+
+                    histos[ds][bkgname].SetLineColor(color)
+                    histos[ds][bkgname].Rebin(rebinval) 
+
+                    histos[ds][bkgname].GetXaxis().SetRangeUser(xrangeval[0],xrangeval[1])
+
+                    main.cd()
+
+                    ratehistos[ds][dataname].GetXaxis().SetTitleSize (0.06)
+                    ratehistos[ds][dataname].GetXaxis().SetLabelSize (0.05)
+                    ratehistos[ds][dataname].GetYaxis().SetTitleSize (0.06)
+                    ratehistos[ds][dataname].GetYaxis().SetLabelSize (0.05)
+                    ratehistos[ds][dataname].Draw("same")   
+                    histos[ds][bkgname].Draw("histsame") 
+                    
+                    
+                    leg.AddEntry(histos[ds][bkgname],ds+regionstr+"bkg","L")
+                    leg.AddEntry(ratehistos[ds][dataname],ds+regionstr,"LE")
+
+                    sub.cd()
+                    allrat.append(copy.deepcopy(ratehistos[ds][dataname]) )
+                    allrat[-1].Divide(histos[ds][bkgname])
+
+
+                    allrat[-1].GetYaxis().SetRangeUser(0.5,1.5)
+                    allrat[-1].SetTitle(";"+tc+"(GeV);")
+                    allrat[-1].GetXaxis().SetTitleSize (0.12)
+                    allrat[-1].GetXaxis().SetLabelSize (0.09)
+
+                    allrat[-1].GetYaxis().SetTitleSize (0.12)
+                    allrat[-1].GetYaxis().SetLabelSize (0.09)
+                    allrat[-1].GetXaxis().SetRangeUser(xrangeval[0],xrangeval[1])
+
+
+                    print("--Fit--",tc,regionstr)
+                    if regionstr=="LT21":
+                        allrat[-1].Fit("pol1")
+
+                    line2=ROOT.TLine(xrangeval[0],1.0,xrangeval[1],1.0)
+                    line2.SetLineColor(0)
+                    line1=ROOT.TLine(xrangeval[0],1.0,xrangeval[1],1.0)
+                    line1.SetLineStyle(2)
+
+                    allrat[-1].Draw("histesame") 
+                    line2.Draw()
+                    line1.Draw()
+            main.cd()
+            leg.Draw()
+            main.SetLogy()
+            canv.Write()
+            canv.Print('plots/'+tc+ds+'.png', 'png')
+            canv.Print('plots/'+tc+ds+'.root', 'root')
+            print(ds)
+           
+
     
     
 output.Close()
